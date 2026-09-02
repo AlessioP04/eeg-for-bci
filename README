@@ -8,7 +8,7 @@ Il dataset, il cui accesso è spiegato nei paragrafi successivi, è stato qui mo
 - I dati nella forma ".edf" e ".edf.event" sono stati raggruppati nella cartella rawdata
 - I dati effettivamente utilizzati e quindi quelli conformi allo standard BIDS (sub-xxx) sono stati raggruppati nella cartella data
 Nella cartella è già presente il file "participants.tsv" oppurtanamente modificato per essere compatibile con la libreria python mne
-Il codice scritto personalmente è visualizzabile nella cartella src
+Il codice scritto personalmente è visualizzabile nella cartella src, la cui organizzazione è descritta in src/README.md
 
 ## Accesso al dataset
 

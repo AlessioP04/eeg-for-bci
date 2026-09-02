@@ -2,7 +2,7 @@
 from pathlib import Path
 import pandas as pd
 
-root = Path(__file__).resolve().parent.parent
+root = Path(__file__).resolve().parents[2]  # root del progetto (contiene data/ e rawdata/)
 
 channels_files = list(root.rglob("*_channels.tsv"))
 
