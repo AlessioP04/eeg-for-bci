@@ -16,13 +16,33 @@ src/
 
 ## pipelines/
 
-| Notebook | Run | Classi |
-|---|---|---|
-| `CSP_motor_imagery.ipynb` | 4, 8, 12 | pugno sinistro vs destro **immaginato** |
-| `CSP_motor_execution.ipynb` | 5, 9, 13 | entrambi i pugni vs entrambi i piedi, movimento **reale** |
+Due task, tre metodi di estrazione delle feature, sei notebook. Le colonne sono i task:
 
-Entrambe seguono la stessa sequenza: lettura BIDS → filtro 8-30 Hz → riferimento medio →
-ICA → sliding window → CSP → SVM con `GridSearchCV` → Leave-One-Run-Out sulle tre run.
+| Metodo | Motor imagery (run 4, 8, 12) | Motor execution (run 5, 9, 13) |
+|---|---|---|
+| CSP a banda singola | `CSP_motor_imagery.ipynb` | `CSP_motor_execution.ipynb` |
+| Filter Bank CSP | `FBCSP_motor_imagery.ipynb` | `FBCSP_motor_execution.ipynb` |
+| Riemanniano | `Riemann_motor_imagery.ipynb` | `Riemann_motor_execution.ipynb` |
+
+Le classi sono pugno sinistro vs destro **immaginato** per il motor imagery, entrambi i pugni
+vs entrambi i piedi con movimento **reale** per il motor execution.
+
+Tutte e sei condividono la stessa impalcatura: lettura BIDS → filtro passa banda → riferimento
+medio → ICA → sliding window → estrazione feature → SVM con `GridSearchCV` → Leave-One-Run-Out
+sulle tre run → soglia probabilistica. Cambia solo il blocco di feature extraction:
+
+- **CSP** — un CSP sulla banda 8-30 Hz, il baseline classico.
+- **FBCSP** — un CSP indipendente per ognuna delle nove sotto-bande da 4 Hz fra 4 e 40 Hz
+  (`util/FilterBankCSP.py`), seguito da `SelectKBest` con mutua informazione. Qui il filtro
+  passa banda è 4-40 Hz e non 8-30: restringerlo lascerebbe vuote le sotto-bande esterne.
+  La `Pipeline` usa una cache su disco perché altrimenti il banco di filtri verrebbe
+  ricalcolato a ogni combinazione della griglia, con tempi circa tripli.
+- **Riemanniano** — matrice di covarianza di ogni finestra proiettata nello spazio tangente
+  (`pyriemann`), poi SVM. È il più veloce dei tre di un ordine di grandezza.
+
+La cross validation interna alla `GridSearchCV` usa `StratifiedGroupKFold` raggruppando per
+trial: le finestre si sovrappongono al 75% e, divise a caso, finirebbero quasi identiche sia
+in train sia in validation, gonfiando lo score con cui vengono scelti gli iperparametri.
 
 Le predizioni con probabilità massima sotto soglia vengono scartate anziché emesse: è una
 scelta di progetto, in un sistema BCI è preferibile non emettere un comando piuttosto che
@@ -34,9 +54,15 @@ I parametri stanno tutti nel blocco `Configurazione` in cima alla cella. In part
 `CHANNEL_MODE` sceglie come vengono selezionati i canali:
 
 - `"auto"` — ricalcolati dentro ogni fold della LORO sulle sole run di training, tramite
-  `util.channel_selection`. È il default per il motor imagery.
-- `"fixed"` — la lista in `FIXED_CHANNELS`, comoda per le prove veloci e per riprodurre i
-  risultati già documentati in `results/`. È il default per il motor execution.
+  `util.channel_selection`. Vanno calcolati per forza dentro il fold: una selezione unica su
+  tutte e tre le run guarderebbe anche la run di test e falserebbe la validazione.
+- `"fixed"` — la lista in `FIXED_CHANNELS`, cioè i canali sensomotori scelti anatomicamente.
+
+Il default è `"fixed"` ovunque tranne che in `CSP_motor_imagery.ipynb`. In un confronto su tre
+soggetti con la pipeline riemanniana i canali fissi hanno reso più della selezione automatica
+(69,2% contro 64,9% con il contrasto riposo/attivazione e 68,1% con quello sinistra/destra),
+ma con deviazioni standard fra i 13 e i 20 punti: su tre soggetti la differenza non è
+conclusiva e andrebbe rimisurata su tutti e 109.
 
 ## analysis/
 
@@ -50,9 +76,15 @@ I parametri stanno tutti nel blocco `Configurazione` in cima alla cella. In part
 - `preprocessing.py` — sliding window sul segnale raw e relativa etichettatura
 - `channel_selection.py` — canali più discriminativi a partire dagli ERD/ERS, calcolati su un
   sottoinsieme di run scelto dal chiamante
-- `DualBandCSP.py` — trasformatore che concatena due CSP, uno in banda mu e uno in banda beta
+- `FilterBankCSP.py` — un CSP per ogni sotto-banda del banco di filtri, con le feature concatenate
+- `DualBandCSP.py` — versione a due sole bande, mu e beta, precedente al `FilterBankCSP`
 - `modifica_tsv.py` — script una tantum sui `*_channels.tsv`, da eseguire dopo aver scaricato
   il dataset (vedi il README nella root)
+
+## Dipendenze
+
+`mne`, `mne-bids`, `scikit-learn`, `numpy`, `scipy`, `pandas`, `matplotlib`, più `pyriemann`
+per le due pipeline riemanniane.
 
 ## Come si lanciano i notebook
 

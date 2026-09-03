@@ -26,7 +26,7 @@ Per questo progetto è stata utilizzata la versione di OpenNeuro.
 
 1. Apri il link OpenNeuro.
 2. Scarica i file del dataset. Sarà sufficiente spostare i dati dei pazienti. Gli altri file sono caricati nella repository di github.
-3. Estrai/copia in questo folder i dati inserendoli opportunatamente nelle cartelle data e rawdata. Ricordiamo che data rawdata contiene i dati grezzi in formato edf e edf.event, mentre in data sono presenti i file conformi allo standard bids, dunque il formato .set affiancato dai tsv e dai json
+3. Estrai/copia in questo folder i dati inserendoli opportunatamente nelle cartelle data e rawdata. Ricordiamo che rawdata contiene i dati grezzi in formato edf e edf.event, mentre in data sono presenti i file conformi allo standard bids, dunque il formato .set affiancato dai tsv e dai json
 4. Per evitare alcuni warning eseguire lo script "modificaTsv" una volta. 
 
 

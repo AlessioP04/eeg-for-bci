@@ -1,6 +1,7 @@
 # Rimozione del dataset, sia raw data che processed data 
 data/s*
 rawdata/S*
+todo.txt
 
 # IDE
 .vscode/

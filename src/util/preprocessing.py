@@ -31,9 +31,16 @@ def create_window_labels(
     total_samples,
     window_samples,
     step_samples,
-    threshold=0.5
+    threshold=0.5,
+    return_groups=False
 ):
     labels_per_sample = np.zeros(total_samples, dtype=int)
+
+    # Indice del trial che copre ciascun campione. Serve a raggruppare, durante la cross
+    # validation, le finestre ritagliate dallo stesso trial: sovrapponendosi condividono
+    # gran parte del segnale e non possono stare una in train e una in validation.
+    trials_per_sample = np.full(total_samples, -1, dtype=int)
+
     event_samples = events[:, 0]
     event_codes = events[:, 2]
 
@@ -41,8 +48,10 @@ def create_window_labels(
         start = event_samples[i]
         end = event_samples[i + 1]
         labels_per_sample[start:end] = event_map[event_codes[i]]
+        trials_per_sample[start:end] = i
 
     y = []
+    groups = []
 
     for start in range(0, total_samples - window_samples, step_samples):
         end = start + window_samples
@@ -60,5 +69,13 @@ def create_window_labels(
 
         else:
             y.append(1)
+
+        # Alla finestra viene assegnato il trial da cui proviene la maggior parte dei campioni
+        window_trials = trials_per_sample[start:end]
+        window_trials = window_trials[window_trials >= 0]
+        groups.append(int(np.bincount(window_trials).argmax()) if window_trials.size else -1)
+
+    if return_groups:
+        return np.array(y), np.array(groups)
 
     return np.array(y)
