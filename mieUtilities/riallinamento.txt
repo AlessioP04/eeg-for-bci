@@ -1,0 +1,138 @@
+Il riallineamento, in dettaglio
+È il passaggio che regge tutta la pipeline, quindi vale la pena vederlo bene. Ho fatto girare le misure che seguono sui tuoi dati veri, soggetto 001, banda mu, così i numeri non sono illustrativi ma effettivi.
+
+1. Cosa cambia davvero fra una run e l'altra
+Le run 4, 8 e 12 sono la stessa identica cosa: lo stesso soggetto che immagina lo stesso movimento. Ma sono separate da parecchi minuti, durante i quali cambiano cose molto concrete:
+
+il gel conduttivo si asciuga. L'impedenza fra elettrodo e cute sale, e il segnale che arriva all'amplificatore si attenua. Non allo stesso modo su tutti gli elettrodi: quelli messi peggio degradano prima;
+la persona si stanca. Cala l'attenzione, sale la sonnolenza, e con la sonnolenza l'ampiezza dei ritmi lenti aumenta in modo generalizzato;
+la testa si muove impercettibilmente nella cuffia, cambiando di qualche millimetro la posizione degli elettrodi rispetto alla corteccia;
+il livello generale di attivazione della persona è semplicemente diverso in due momenti diversi.
+Nessuna di queste cose ha a che vedere con sinistra o destra. Sono tutte variazioni comuni a tutta la run.
+
+2. Quanto è grande, in numeri
+Ho calcolato il baricentro di ciascuna run e poi la distanza riemanniana fra i tre baricentri:
+
+potenza complessiva
+run 4	3,599 · 10⁻¹⁰
+run 8	3,162 · 10⁻¹⁰
+run 12	3,724 · 10⁻¹⁰
+Il rapporto fra la run più e meno energetica è 1,18: un 18% di differenza nel livello generale. Ma la cosa interessante non è la potenza, è la posizione:
+
+coppia di run	distanza fra i baricentri
+run 4 ↔ run 8	0,504
+run 4 ↔ run 12	0,413
+run 8 ↔ run 12	0,617
+3. Il confronto che rende tutto chiaro
+Questi numeri da soli non dicono niente: 0,5 è tanto o poco? Il metro di paragone giusto è quanto distano fra loro le due classi che vogliamo distinguere. Ho calcolato, dentro ogni run, la distanza fra il centro delle finestre "sinistra" e quello delle finestre "destra":
+
+run	distanza sinistra ↔ destra
+run 4	0,966
+run 8	0,811
+run 12	1,065
+Ecco il punto. Il segnale che devi riconoscere vale circa 0,9. Lo spostamento fra una run e l'altra vale circa 0,5.
+
+Lo spostamento parassita è più della metà del segnale utile. È come se dovessi distinguere due voci che differiscono di un tono, e nel frattempo qualcuno cambiasse l'accordatura dello strumento di mezzo tono fra una registrazione e l'altra. Il classificatore impara su due run, arriva sulla terza e trova tutto traslato di un'entità paragonabile a quella che deve misurare.
+
+Questo è, in numeri, il motivo per cui la tua ablazione del riallineamento è risultata significativa: non stai togliendo una rifinitura, stai togliendo la correzione di un disturbo grande quanto il segnale.
+
+4. La forma matematica del disturbo
+Per correggere un disturbo bisogna sapere che forma ha.
+
+Prendi il caso più semplice: l'impedenza degli elettrodi cambia e tutti i segnali vengono attenuati. Chiamiamo A la matrice che descrive questa attenuazione — sulla diagonale i fattori di ciascun elettrodo. Se il segnale vero è x, quello che registri è A·x.
+
+Cosa succede alla covarianza? La covarianza è la media dei prodotti del segnale con se stesso, quindi se il segnale diventa A·x, la covarianza diventa:
+
+
+C_osservata = A · C_vera · Aᵀ
+Questo è il fatto decisivo: il disturbo non si somma, si moltiplica, e lo fa da entrambi i lati. Non è una traslazione nel senso ordinario, è una trasformazione che si chiama congruenza.
+
+Ed è il motivo per cui la geometria ordinaria non basta. Se il disturbo fosse additivo — C + D — basterebbe sottrarre una media. Essendo di questa forma, la correzione giusta deve avere la stessa forma.
+
+5. La correzione
+Se il disturbo è C → A C Aᵀ, la correzione è un'altra congruenza C → W C Wᵀ scelta in modo da annullarlo. La domanda è quale W.
+
+La risposta che usa il codice: W è l'inverso della radice quadrata del baricentro della run.
+
+
+def recenter(covs, reference):
+    W = invsqrtm(reference)
+    return np.einsum('ij,njk,kl->nil', W, covs, W)
+Perché proprio questo? Facciamo il conto sul baricentro stesso. Chiamiamo R il baricentro della run, e W = R^(-1/2). Applichiamo la trasformazione a R:
+
+
+W · R · W  =  R^(-1/2) · R · R^(-1/2)  =  I
+Il baricentro finisce esattamente sull'identità. E dato che la stessa W viene applicata a tutte le finestre della run, l'intera nuvola si sposta insieme al suo centro.
+
+Fallo per tutte e tre le run, ciascuna con la propria W, e i tre baricentri finiscono tutti nello stesso punto. Lo spostamento fra run è sparito per costruzione. Ecco la verifica sui tuoi dati:
+
+coppia di run	prima	dopo
+run 4 ↔ run 8	0,504	2,9 · 10⁻¹⁴
+run 4 ↔ run 12	0,413	3,2 · 10⁻¹⁴
+run 8 ↔ run 12	0,617	2,7 · 10⁻¹⁴
+Quei 10⁻¹⁴ sono zero: è l'errore di arrotondamento del calcolo in virgola mobile.
+
+Cosa fa invsqrtm, concretamente
+La radice quadrata di una matrice si calcola così: si scompone la matrice nelle sue direzioni proprie — le direzioni lungo cui i dati variano in modo indipendente — ciascuna con la sua quantità di varianza. Poi si fa la radice quadrata di ciascuna quantità e si ricompone.
+
+L'effetto complessivo della trasformazione ha un nome in statistica: sbiancamento (whitening). Dopo averla applicata, la finestra media di quella run ha potenza 1 su ogni direzione e zero correlazioni: assomiglia a rumore neutro. Che è esattamente ciò che vogliamo, perché significa che ogni finestra viene ora descritta rispetto a quanto si discosta dal comportamento tipico della sua stessa run, non in valore assoluto.
+
+Ti collego una cosa che avevi già incontrato: quando lavoravamo sul rest/active avevi notato che il CSP produce log-potenze assolute, senza riferimento interno, e che questo lo penalizza. Il riallineamento riemanniano è proprio la costruzione di quel riferimento interno mancante.
+
+6. La proprietà che fa funzionare tutto: è un'isometria
+A questo punto la domanda giusta, e la più importante di tutta la spiegazione, è: se sposto tutte le finestre, non sto spostando anche la differenza fra sinistra e destra? Non rischio di cancellare il segnale insieme al disturbo?
+
+No, e non per fortuna: per una proprietà matematica precisa. La distanza riemanniana usata qui si chiama affine-invariante, e il suo nome è esattamente la sua proprietà:
+
+
+distanza(W·A·Wᵀ , W·B·Wᵀ)  =  distanza(A, B)
+per qualunque W invertibile. Tradotto: la congruenza è un movimento rigido. Sposta tutta la nuvola, ma non deforma nulla al suo interno; tutte le distanze fra i punti restano identiche. È l'equivalente di prendere un oggetto e spostarlo sul tavolo: cambia dove sta, non cambia com'è fatto.
+
+Ecco la verifica sui tuoi dati — la distanza fra il centro delle finestre di sinistra e quello delle finestre di destra, prima e dopo:
+
+run	prima	dopo
+run 4	0,966	0,966
+run 8	0,811	0,811
+run 12	1,065	1,065
+Identiche fino all'ultima cifra stampata. Il segnale di classe è intatto, lo spostamento fra run è azzerato. È esattamente la separazione che cercavamo: il disturbo era comune a tutta la run, quindi viene assorbito dal baricentro; il segnale era una differenza interna alla run, quindi sopravvive al movimento rigido.
+
+7. Perché il baricentro riemanniano e non la media normale
+Resta da giustificare perché il centro si calcola con mean_riemann e non facendo la media delle matrici numero per numero.
+
+Ho misurato l'errore che si commetterebbe. Confronto della potenza complessiva del centro calcolato nei due modi:
+
+run	media aritmetica	media riemanniana	sovrastima
+run 4	4,684 · 10⁻¹⁰	3,599 · 10⁻¹⁰	+30,2%
+run 8	3,980 · 10⁻¹⁰	3,162 · 10⁻¹⁰	+25,9%
+run 12	4,940 · 10⁻¹⁰	3,724 · 10⁻¹⁰	+32,6%
+La media aritmetica produce un centro che rappresenta un segnale circa un terzo più energetico di qualunque cosa tu abbia mediato. È l'effetto swelling di cui ti parlavo: non è un errore di calcolo, è che stai "tagliando dritto attraverso il globo" invece di restare sulla superficie.
+
+Se usassi quel centro per il riallineamento, staresti correggendo rispetto a un punto che non è dove sta la nuvola, e la correzione sarebbe sistematicamente sbagliata del 30%.
+
+8. Perché non è leakage
+Il baricentro della run di test viene calcolato sulla run di test. Sembra sospetto, ed è giusto che tu sappia difendere questo punto in sede di discussione.
+
+L'argomento è: reference_mean non riceve mai y. Guarda la firma, non c'è modo che le etichette entrino. Il baricentro è una proprietà della distribuzione dei dati non etichettati, non della loro suddivisione in classi.
+
+L'analogia più onesta: normalizzare il volume di una registrazione audio prima di trascriverla. Per farlo devi ascoltare la registrazione, ma non ti serve sapere cosa dice — e infatti non ti aiuta a indovinare le parole.
+
+In letteratura questa categoria di tecniche si chiama adattamento di dominio non supervisionato, ed è standard. Nel tuo sistema online, Online_motor_imagery, la controparte pratica esiste già: corrisponde a far registrare all'utente un minuto di segnale a vuoto prima di iniziare, il che è del tutto lecito in una BCI reale.
+
+Il limite onesto, che ti conviene scrivere in tesi: se le classi nella run di test fossero molto sbilanciate, il baricentro risentirebbe un po' della composizione delle classi, e allora un filo di informazione sulle etichette passerebbe. Nel tuo caso non succede — il protocollo alterna le due classi in modo bilanciato, 42 finestre contro 42 — ma è la condizione da dichiarare. Ed è precisamente il motivo per cui esiste la modalità alternativa:
+
+modalità	cosa usa	risultato misurato
+"per_run"	ogni run si centra su se stessa	63,60%
+"train"	tutte si centrano sulle sole run di training	61,22%
+La differenza, 2,4 punti, è il prezzo di rinunciare completamente a toccare la run di test. Averle misurate entrambe è la risposta preconfezionata alla domanda che ti farà la commissione.
+
+9. La riga di codice
+
+return np.einsum('ij,njk,kl->nil', W, covs, W)
+einsum è un modo di scrivere prodotti fra matrici dichiarando gli indici. Letta a voce: prendi W con indici i,j, prendi la covarianza numero n con indici j,k, prendi ancora W con indici k,l; somma su j e su k, che compaiono due volte; lascia liberi n, i, l.
+
+Il risultato è W · C · W per ogni finestra n, calcolato su tutte e 246 in una sola istruzione anziché in un ciclo. W è simmetrica — è la radice inversa di una matrice simmetrica — quindi W = Wᵀ e questa è davvero la congruenza W C Wᵀ di cui parlavamo.
+
+In una frase
+Il riallineamento sposta rigidamente la nuvola di covarianze di ogni run in modo che tutte le run condividano lo stesso centro. Lo spostamento parassita fra sessioni — che sui tuoi dati vale circa metà del segnale utile — viene azzerato; la differenza fra sinistra e destra, essendo interna alla run, sopravvive immutata al quattordicesimo decimale.
+
+Quando vuoi, il terzo messaggio sulla classificazione.

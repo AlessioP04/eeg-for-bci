@@ -1,0 +1,50 @@
+Funzionamento kfold
+Il problema che risolve
+Devi scegliere fra 128 combinazioni di iperparametri. Per scegliere ti serve sapere quale generalizza meglio — ma per saperlo dovresti provarle su dati che il modello non ha visto.
+
+Se le valuti sugli stessi dati su cui le hai addestrate, vince sempre quella che memorizza di più: il modello ha già visto le risposte. Se invece metti da parte un pezzo di X_train come validazione, il numero è onesto ma nascono due problemi: quel pezzo non lo usi più per addestrare, e il risultato dipende parecchio da quale pezzo ti è capitato di mettere da parte. Con 168 finestre, spostare la linea di taglio può cambiare il verdetto.
+
+Il k-fold risolve entrambi ruotando il pezzo messo da parte.
+
+Come funziona
+Divide X_train in k parti (nel tuo caso 5). Poi addestra k volte, ogni volta tenendo fuori una parte diversa:
+
+
+X_train, 168 finestre, divise in 5 parti da ~34
+
+giro 1:   [VALID] [train] [train] [train] [train]   -> punteggio 1
+giro 2:   [train] [VALID] [train] [train] [train]   -> punteggio 2
+giro 3:   [train] [train] [VALID] [train] [train]   -> punteggio 3
+giro 4:   [train] [train] [train] [VALID] [train]   -> punteggio 4
+giro 5:   [train] [train] [train] [train] [VALID]   -> punteggio 5
+                                                        │
+                                    media dei 5 = il punteggio di QUESTA combinazione
+Il risultato è che ogni finestra viene usata per addestrare 4 volte su 5 e per valutare esattamente una volta. Non butti via niente, e il punteggio è una media su cinque tagli diversi invece che il capriccio di un taglio solo.
+
+Cosa succede esattamente nel tuo codice
+
+GridSearchCV(pipe, param_grid, cv=5, scoring="balanced_accuracy")
+La griglia di CSP_motor_imagery ha 4 valori di componenti × 2 di log × 4 di C × 2 di gamma × 2 di kernel = 128 combinazioni. Per ciascuna esegue i 5 giri qui sopra:
+
+128 × 5 = 640 addestramenti solo per decidere
+poi prende la combinazione con la media migliore e fa un ultimo addestramento su tutte le 168 finestre con quei parametri
+Quel 641-esimo modello è grid.best_estimator_, ed è l'unico che tocca X_test. Ecco perché il tuo grid.fit(...) impiega decine di secondi: non sta addestrando un modello, ne sta addestrando 641.
+
+Perché non usare direttamente X_test per scegliere
+Perché provare 128 combinazioni su X_test e tenere la migliore significa scegliere guardando le risposte. Il numero finale smetterebbe di misurare «come va su dati mai visti» e diventerebbe «quanto bene ho pescato fra 128 tentativi». Con 84 campioni di test, qualche combinazione azzecca per fortuna.
+
+La regola è che X_test si tocca una volta sola, alla fine. Tutto ciò che serve a decidere deve avvenire dentro X_train, e il k-fold è il modo di ricavare da X_train un surrogato di dati mai visti.
+
+Le due varianti che usi
+Stratified significa che ogni parte mantiene la stessa proporzione fra le classi del totale. Senza, con 5 tagli casuali potrebbe capitare una parte con quasi solo «sinistra», e il punteggio di quel giro sarebbe insensato.
+
+Group è quello di cui parlavamo prima: le parti si formano tenendo insieme le finestre dello stesso trial, così la parte di validazione non contiene quasi-copie di ciò che sta in addestramento.
+
+Il collegamento che forse chiude il cerchio
+La tua LORO è già un k-fold. È un k-fold con k=3 in cui le parti non sono scelte a caso ma sono le tre run:
+
+
+giro 1:   test = run 12   train = run 4 + run 8
+giro 2:   test = run 8    train = run 4 + run 12
+giro 3:   test = run 4    train = run 8 + run 12
+Stessa identica logica: ruoti il pezzo tenuto fuori e medi i risultati. La differenza è a cosa serve il risultato. Quello esterno, la LORO, produce il numero che riporti in tesi. Quello interno produce la scelta degli iperparametri, e il suo punteggio è uno strumento di lavoro che non finisce nella relazione.

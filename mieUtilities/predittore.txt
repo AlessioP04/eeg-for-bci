@@ -1,0 +1,72 @@
+concentriamoci prima di tutto sulla linea dell'illitteracy: cosa dovremmo fare come funzionerebbe? come possiamo sfruttare la run di baseline? spiegalo esasutivamente e in termini non troppo tecnici
+Ti spiego tutta la catena, dal fenomeno fisico fino al numero che finisce in tesi.
+
+Il problema, in una frase
+Oggi l'unico modo per sapere se una persona riuscirà a usare un BCI è farglielo usare. La metti a sedere, le monti la cuffia, le fai fare l'intero protocollo, analizzi i dati e solo alla fine scopri che per lei non funziona. Nei tuoi 30 soggetti succede in due casi su tre.
+
+La domanda è: si può saperlo prima, da una registrazione brevissima in cui il soggetto non deve fare assolutamente nulla?
+
+Il ritmo mu, cioè perché la risposta è sì
+La corteccia sensomotoria, quando non sta facendo niente, entra in una specie di folle. I suoi neuroni si scaricano in modo sincronizzato, tutti insieme a ritmo, e questa sincronia produce un'oscillazione ampia e regolare intorno agli 8-12 Hz che si legge sugli elettrodi centrali. È il ritmo mu, ed è l'equivalente motorio del ritmo alfa che compare sulla nuca quando chiudi gli occhi: il ritmo di un'area corticale che sta girando a vuoto.
+
+Ora, il punto cruciale. Il motor imagery non funziona aggiungendo qualcosa al segnale. Funziona rompendo quella sincronia: quando immagini di muovere la mano, i neuroni di quell'area smettono di andare a tempo, l'oscillazione si smorza e la potenza in banda mu cala. È la desincronizzazione, l'ERD, ed è esattamente il calo che il tuo classificatore va a cercare.
+
+Da qui segue tutto: se una persona a riposo non ha un ritmo mu marcato, non c'è niente da rompere. Nessuna sincronia di partenza significa nessun calo misurabile, quindi nessun controllo. E siccome il ritmo mu si vede a riposo, senza chiedere al soggetto di fare nulla, basta una registrazione di qualche decina di secondi per stimarlo.
+
+La domanda operativa diventa quindi: quanto è marcato il ritmo mu di questa persona mentre sta ferma?
+
+Perché "marcato" e non semplicemente "forte"
+Qui c'è la sottigliezza che fa la differenza fra un predittore che funziona e uno che non funziona.
+
+Se misurassi semplicemente quanta potenza c'è fra 8 e 12 Hz, misureresti in gran parte cose che col cervello non c'entrano: lo spessore del cranio, l'impedenza degli elettrodi, i capelli, il guadagno dell'amplificatore. Due persone possono differire di un fattore dieci in potenza assoluta per ragioni puramente meccaniche.
+
+C'è poi un fatto generale dell'EEG: l'attività di fondo ha sempre più energia alle basse frequenze e via via meno alle alte, secondo un andamento liscio e decrescente — il cosiddetto fondo 1/f. Quel fondo c'è in tutti, ovunque, e non dice niente sul motor imagery.
+
+Quello che conta è se, sopra quel fondo liscio, spunta una gobba proprio alla frequenza del mu.
+
+L'analogia: entri in una stanza rumorosa e non ti chiedi «quanti decibel ci sono», perché dipende dall'impianto di ventilazione. Ti chiedi «si sente una nota distinta che emerge dal brusio?». Il predittore fa esattamente questo — misura l'altezza della gobba sopra il brusio, non l'altezza assoluta. Ed è per costruzione immune a tutti i fattori di scala che ti inquinerebbero la misura.
+
+È l'idea del predittore neurofisiologico proposto da Blankertz e colleghi: nel loro lavoro correlava intorno a 0,5 con la prestazione BCI ottenuta successivamente.
+
+Come si usano le tue run di baseline
+Hai due registrazioni che nel progetto non hai mai aperto: la run 1, 61 secondi a occhi aperti, e la run 2, 61 secondi a occhi chiusi. Ci sono per tutti e 109 i soggetti, 64 canali. Sono 218 registrazioni ferme lì.
+
+Quella che serve è la run 1, a occhi aperti. Il motivo è che a occhi chiusi esplode il ritmo alfa occipitale, che è enorme e si diffonde su tutto lo scalpo fino a sommergere il mu, che è molto più piccolo e locale. A occhi aperti l'alfa è soppresso e il mu resta leggibile. La run 2 non la butti: serve come controllo, e il confronto fra le due è di per sé informativo.
+
+Il procedimento, in termini semplici:
+
+Prendi la registrazione a occhi aperti e ti concentri sugli elettrodi sopra la corteccia motoria, C3, C4, Cz e i vicini. Applichi un filtro laplaciano, che vuol dire: al segnale di C3 sottrai la media dei quattro elettrodi che lo circondano. Serve a isolare quello che nasce davvero sotto quell'elettrodo, eliminando tutto ciò che è diffuso su una vasta area — e siccome il mu è focale mentre l'alfa residuo è diffuso, questa sottrazione fa emergere il primo e cancella il secondo. È un passaggio che sembra un dettaglio ma è quello che rende il predittore affidabile.
+
+Poi calcoli lo spettro di potenza, cioè quanta energia c'è a ogni frequenza. Ottieni una curva che scende dolcemente, e in alcune persone ha una gobba evidente intorno ai 10 Hz mentre in altre è quasi liscia.
+
+Stimi l'andamento del fondo interpolando la parte liscia della curva ed escludendo la banda mu, altrimenti la gobba influenzerebbe la stima del fondo che dovrebbe servire a misurarla. Infine misuri di quanto la gobba supera il fondo.
+
+Il risultato è un numero per soggetto, ricavato da un minuto in cui la persona non ha fatto niente.
+
+Perché il risultato è difendibile
+Questo è il punto che ti conviene sottolineare in sede di discussione. Il predittore lo calcoli sulle run 1 e 2. La prestazione la misuri sulle run 4, 8 e 12. Non c'è nessuna sovrapposizione fra i dati usati per predire e quelli usati per misurare. Nessuna circolarità, nessun leakage, nessuna possibilità che qualcuno ti contesti di aver predetto una cosa usando la cosa stessa.
+
+È una fortuna che il dataset abbia le run di baseline separate: in molti dataset non ci sono, e chi vuole fare questa analisi deve arrangiarsi ritagliando i periodi di riposo dai trial, con tutte le contestazioni del caso.
+
+Cosa produce l'analisi
+Calcoli il predittore per ogni soggetto di cui hai la prestazione. Poi fai un grafico a dispersione con il predittore sull'asse orizzontale e l'accuratezza LORO su quello verticale, e calcoli la correlazione con il relativo p-value.
+
+Se la correlazione c'è, hai replicato un risultato noto della letteratura su un dataset e con un protocollo diversi, su un numero di soggetti considerevole. Se non c'è, è comunque un risultato, e ne discuti le ragioni: 61 secondi sono pochi, i soggetti di questo dataset non hanno avuto né addestramento né feedback, la sessione è unica.
+
+Il passo che lo trasforma da osservazione a contributo ingegneristico è convertire il numero in una regola di decisione. Fissi una soglia sul predittore e la usi come screening: dici quanti soggetti verrebbero correttamente esclusi, quanti verrebbero esclusi per errore, e di quanto salirebbe l'accuratezza media di chi resta. A quel punto non stai più descrivendo un fenomeno, stai proponendo un componente del dispositivo — una fase di screening che evita di far perdere venti minuti di calibrazione a chi non otterrà controllo, e che suggerisce di proporgli un paradigma diverso.
+
+Le cautele, che vanno scritte
+Una correlazione intorno a 0,5 significa spiegare circa un quarto della varianza. Predice una tendenza di popolazione, non il destino del singolo. Va presentato come indicatore di screening, mai come verdetto individuale, e questa distinzione va messa nero su bianco.
+
+C'è poi un problema che gioca contro di te e che conviene anticipare. La tua variabile da predire — l'accuratezza per soggetto — è misurata su circa 42 trial, quindi è essa stessa molto rumorosa. Quando la variabile dipendente è rumorosa, qualunque correlazione vera appare più debole di quanto sia: il rumore la comprime verso zero. Significa due cose. Primo, che se ottieni una correlazione modesta non devi concludere troppo in fretta che il predittore non funziona. Secondo, che ti conviene usare tutti i soggetti disponibili e non solo i 30 attuali, perché è l'unico modo di guadagnare potenza statistica.
+
+Come procederei
+Prima cosa, il predittore su tutti e 109 i soggetti, che è veloce perché sono registrazioni di un minuto e non c'è nessun modello da addestrare. Ti dà subito la distribuzione: quante persone hanno un mu marcato e quante no.
+
+Seconda cosa, la prestazione su più soggetti possibile. Qui torna utile la pipeline riemanniana, che gira in 37 secondi a soggetto: tutti i 105 utilizzabili stanno in poco più di un'ora, contro le quasi quattro ore che ti chiederebbe il FBCSP.
+
+Terza, la correlazione, il grafico e la regola di screening.
+
+E c'è un accorgimento che aumenta le tue probabilità di trovare qualcosa: il predittore ha senso calcolarlo anche separatamente per emisfero, su C3 e C4. Un soggetto può avere un mu marcato da un lato e assente dall'altro, e siccome tu classifichi sinistra contro destra, ti serve che sia presente da entrambe le parti. Il minimo fra i due valori potrebbe predire meglio della loro media.
+
+Se ti convince, il primo pezzo — il predittore su tutti e 109 dalle run di baseline — è quello da cui partirei, ed è anche il più veloce da realizzare.

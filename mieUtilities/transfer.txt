@@ -1,0 +1,28 @@
+Le basi
+L'apprendimento automatico standard assume che i dati di addestramento e quelli di test vengano dalla stessa distribuzione. Nell'EEG questa assunzione è falsa a due livelli: fra sessioni dello stesso soggetto — giorno diverso, cuffia rimessa qualche millimetro più in là, impedenze diverse, vigilanza diversa — e fra soggetti, che hanno anatomia e ripiegamento corticale diversi e adottano strategie mentali diverse per immaginare lo stesso movimento.
+
+Il transfer learning è l'insieme dei metodi per sfruttare dati che vengono da una distribuzione diversa da quella su cui devi predire.
+
+Il vocabolario che ti servirà in tesi è questo. Un dominio è lo spazio delle feature con la sua distribuzione: qui un dominio è un soggetto, o anche una singola sessione. Il task è cosa vuoi predire, e nel tuo caso resta identico ovunque, sinistra contro destra. Quando il task è lo stesso e cambiano solo i domini si parla propriamente di domain adaptation, che è il sottoinsieme di transfer learning che ti riguarda. Il dominio sorgente sono gli altri 108 soggetti, il dominio target è quello che vuoi decodificare. Se del target hai dati ma senza etichette l'adattamento è non supervisionato; se hai una manciata di trial etichettati è supervisionato o few-shot.
+
+Le famiglie di metodi, in ordine di vicinanza a quello che già fai:
+
+Allineamento. Porti ogni dominio su un riferimento comune in modo che le distribuzioni si sovrappongano. È esattamente il tuo RECENTER: calcoli il baricentro delle covarianze di una run e lo riporti all'identità. Le due varianti canoniche in letteratura sono l'Euclidean Alignment e il ricentramento riemanniano. Costano poco, non richiedono etichette del target, e funzionano — l'hai misurato.
+
+Addestramento aggregato fra soggetti. Un solo modello addestrato sui dati di molti soggetti, poi applicato a uno nuovo. Il punto cruciale: funziona solo dopo l'allineamento. Se metti insieme soggetti non allineati il modello impara le differenze fra persone invece del compito, e va peggio del modello individuale. Con l'allineamento invece i 109 soggetti diventano un unico grande insieme utilizzabile.
+
+Calibrazione few-shot. Pre-addestri sull'insieme aggregato, poi adatti con pochi trial etichettati del nuovo utente. È il modo di ridurre drasticamente il tempo di calibrazione, che per un dispositivo reale è la differenza fra usabile e inusabile.
+
+Selezione delle sorgenti. Non tutti i soggetti aiutano. Puoi scegliere quali usare misurando quanto la loro distribuzione somiglia a quella del target — per esempio con la distanza riemanniana fra i baricentri — e scartare quelli che trasferiscono male.
+
+Cosa cambia rispetto a quello che ti avevo detto sul deep learning
+Ti avevo scritto che con 28 trial indipendenti una rete addestrata da zero non è lo stato dell'arte ma solo overfitting costoso. Quella frase vale per il modello individuale, e smette di valere qui. Con l'aggregazione fra soggetti passi da 28 trial a diverse migliaia, ed EEGNet o ShallowConvNet diventano scelte ragionevoli — anzi, è precisamente il regime per cui sono state progettate. Se vai in questa direzione, il confronto con una rete compatta torna sensato.
+
+Cosa farei, in ordine
+Il passo che aprirebbe tutto è il modello cross-subject con allineamento: alleni su N soggetti allineati, testi su un soggetto mai visto (leave-one-subject-out). Ti dà due numeri preziosi — quanto si decodifica un utente senza nessuna calibrazione, e quanti trial di calibrazione servono per pareggiare il modello individuale. Per un dispositivo BCI quella seconda curva è il risultato più utile che la tua tesi possa produrre. Hai già l'infrastruttura: covarianze, riallineamento, LORO da riconvertire in leave-one-subject-out.
+
+Prima però, e costa pochissimo, quantificherei lo spostamento. Hai già le covarianze di ogni run: calcola la distanza riemanniana fra i baricentri di due run dello stesso soggetto e correlala con il calo di accuratezza su quel fold. Se la correlazione c'è, trasformi «la non-stazionarietà è il collo di bottiglia» da affermazione a curva misurata, ed è mezza giornata di lavoro su dati che hai già in memoria. È il capitolo di diagnosi che giustifica tutto il resto.
+
+Delle idee non-transfer che ti avevo proposto, quella che resta più forte è il predittore di illiteracy dalle run di baseline, perché usa 218 registrazioni che nel progetto non hai mai aperto e perché ora hai la variabile dipendente per 30 soggetti. La curva accuratezza contro numero di elettrodi la terrei come capitolo di riserva: è utile e leggera, ma dice meno.
+
+Una cautela sullo scope, perché è una triennale. Il cross-subject è un lavoro serio: rifare l'infrastruttura di valutazione, girare su 105 soggetti, gestire il fatto che i tre a 128 Hz vanno ricampionati. Se il tempo è poco, la coppia «quantificazione dello spostamento più predittore di illiteracy» è più sicura e racconta comunque una storia coerente. Se il tempo c'è, il cross-subject è quello che rende la tesi interessante invece che diligente.

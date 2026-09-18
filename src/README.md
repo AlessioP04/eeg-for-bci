@@ -28,7 +28,7 @@ Le classi sono pugno sinistro vs destro **immaginato** per il motor imagery, ent
 vs entrambi i piedi con movimento **reale** per il motor execution.
 
 Tutte e sei condividono la stessa impalcatura: lettura BIDS → filtro passa banda → riferimento
-medio → ICA → sliding window → estrazione feature → SVM con `GridSearchCV` → Leave-One-Run-Out
+medio → sliding window → estrazione feature → SVM con `GridSearchCV` → Leave-One-Run-Out
 sulle tre run → soglia probabilistica. Cambia solo il blocco di feature extraction:
 
 - **CSP** — un CSP sulla banda 8-30 Hz, il baseline classico.
@@ -40,9 +40,38 @@ sulle tre run → soglia probabilistica. Cambia solo il blocco di feature extrac
 - **Riemanniano** — matrice di covarianza di ogni finestra proiettata nello spazio tangente
   (`pyriemann`), poi SVM. È il più veloce dei tre di un ordine di grandezza.
 
+Nell'impalcatura non c'è più la pulizia ICA, che prima veniva ristimata su ogni run. La
+rimozione è stata decisa dopo averla misurata: nella banda 8-30 Hz scartava in media 0,5
+componenti su 15 ed era quindi inerte, mentre nella banda 4-40 Hz ne scartava 6,5, quasi tutte
+classificate come muscolari, e su otto soggetti costava 2,45 punti di balanced accuracy
+(6 soggetti su 8 peggioravano, p = 0,148). Il calo resta anche tenendo il solo rilevamento
+oculare (−1,19 punti) e non cambia stimando l'ICA su una copia filtrata a 1-40 Hz come vuole
+la prassi (+0,02 punti): il dataset non ha canali EOG dedicati, `find_bads_eog` usa Fp1 e Fp2
+come surrogati e finisce per rimuovere anche segnale utile. Senza ICA le pipeline sono anche
+circa il doppio più veloci.
+
 La cross validation interna alla `GridSearchCV` usa `StratifiedGroupKFold` raggruppando per
 trial: le finestre si sovrappongono al 75% e, divise a caso, finirebbero quasi identiche sia
 in train sia in validation, gonfiando lo score con cui vengono scelti gli iperparametri.
+
+### Simulazione online
+
+`Online_motor_imagery.ipynb` e `Online_motor_execution.ipynb` non sono un quarto metodo ma una
+modalità di valutazione: misurano quanto costa il vincolo di causalità, cioè la differenza fra
+quello che la pipeline ottiene potendo leggere l'intera registrazione e quello che otterrebbe
+dal vivo, ricevendo i campioni man mano. Le due differenze sono:
+
+1. **Filtro causale.** `raw.filter()` usa `phase='zero'`, che secondo la documentazione di MNE
+   compensa il ritardo *rendendo il filtro non causale*: guarda i campioni futuri. La versione
+   online usa un Butterworth IIR in avanti soltanto, con lo stato portato da un blocco al
+   successivo.
+2. **Soglia congelata.** Offline scende finché non accetta il 70% del test set, il che richiede
+   di conoscerlo in anticipo. Online lo stesso criterio si applica alle probabilità ottenute in
+   cross validation sul training, e il valore risultante non si tocca più.
+
+La run di test viene poi riprodotta a blocchi di mezzo secondo attraverso un buffer circolare.
+Il notebook stampa una verifica di correttezza: lo stesso pre-processing calcolato in un colpo
+solo deve dare le identiche probabilità del replay a blocchi, e la differenza attesa è zero.
 
 Le predizioni con probabilità massima sotto soglia vengono scartate anziché emesse: è una
 scelta di progetto, in un sistema BCI è preferibile non emettere un comando piuttosto che
@@ -76,6 +105,8 @@ conclusiva e andrebbe rimisurata su tutti e 109.
 - `preprocessing.py` — sliding window sul segnale raw e relativa etichettatura
 - `channel_selection.py` — canali più discriminativi a partire dagli ERD/ERS, calcolati su un
   sottoinsieme di run scelto dal chiamante
+- `online_simulation.py` — primitive per il funzionamento dal vivo: filtro causale con stato,
+  buffer circolare, calibrazione della soglia
 - `FilterBankCSP.py` — un CSP per ogni sotto-banda del banco di filtri, con le feature concatenate
 - `DualBandCSP.py` — versione a due sole bande, mu e beta, precedente al `FilterBankCSP`
 - `modifica_tsv.py` — script una tantum sui `*_channels.tsv`, da eseguire dopo aver scaricato

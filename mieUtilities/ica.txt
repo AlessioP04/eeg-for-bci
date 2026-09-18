@@ -1,0 +1,11 @@
+ICA, verifica effettuata da Claude, comporta solo un peggioramento delle performance, nonchè un netto rallentamento nella fase di pre-processing
+
+Nota di contorno che vale la pena registrare: B ha riprodotto esattamente gli stessi valori della misura precedente, soggetto per soggetto. Quella pipeline è deterministica, quindi le differenze che vediamo non sono rumore di esecuzione.
+
+Il riepilogo completo, tre misure indipendenti che dicono la stessa cosa:
+
+componenti scartate	effetto sull'accuratezza
+CSP, 8-30 Hz	0,5 / 15	inerte
+FBCSP e RiemannFB, 4-40 Hz	6,5 / 15	−2,45 punti
+solo oculare, 4-40 Hz	~1,1 / 15	−1,19 punti
+Verdetto: rimuoverla da tutte le pipeline. Nessuna configurazione la giustifica, e il tempo di calcolo si dimezza.
