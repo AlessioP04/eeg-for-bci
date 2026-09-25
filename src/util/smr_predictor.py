@@ -31,9 +31,19 @@ FIT_RANGE = (3.0, 40.0)   # intervallo su cui si stima il fondo spettrale
 
 
 # Laplaciano di superficie: segnale dell'elettrodo centrale meno la media dei vicini.
-def laplacian_signal(raw, centre):
-    neighbours = LAPLACIAN_NEIGHBOURS[centre]
+#
+# Con laplacian=False si restituisce il canale grezzo. Serve come termine di paragone: e' la
+# scelta fatta da chi misura il predittore sui canali non filtrati spazialmente, e su quel
+# segnale la banda 8-13 Hz contiene, oltre al mu sensomotorio, anche l'alfa occipitale che vi
+# arriva per conduzione di volume. Il confronto fra le due versioni dice quanto pesi quella
+# contaminazione.
+def laplacian_signal(raw, centre, laplacian=True):
     centre_data = raw.get_data(picks=[centre])[0]
+
+    if not laplacian:
+        return centre_data
+
+    neighbours = LAPLACIAN_NEIGHBOURS[centre]
     ring_data = raw.get_data(picks=neighbours).mean(axis=0)
     return centre_data - ring_data
 
@@ -87,7 +97,8 @@ def peak_over_background(freqs, psd, mu_band=MU_BAND, fit_range=FIT_RANGE):
 # Il valore per emisfero conta: un soggetto puo' avere il mu marcato da un lato e assente
 # dall'altro, e per classificare sinistra contro destra serve che ci sia da entrambe le parti.
 # Per questo oltre alla media viene restituito anche il minimo fra i canali.
-def subject_predictor(subject, root, run=BASELINE_EYES_OPEN, channels=("C3", "C4")):
+def subject_predictor(subject, root, run=BASELINE_EYES_OPEN, channels=("C3", "C4"),
+                      laplacian=True):
     bids_path = BIDSPath(
         subject=subject, task="motion", run=run, datatype="eeg", root=root
     )
@@ -99,7 +110,7 @@ def subject_predictor(subject, root, run=BASELINE_EYES_OPEN, channels=("C3", "C4
     prominences = []
 
     for channel in channels:
-        signal = laplacian_signal(raw, channel)
+        signal = laplacian_signal(raw, channel, laplacian)
         freqs, psd = power_spectrum(signal, sfreq)
         measured = peak_over_background(freqs, psd)
 
@@ -113,14 +124,14 @@ def subject_predictor(subject, root, run=BASELINE_EYES_OPEN, channels=("C3", "C4
 
 
 # Spettro, fondo stimato e misura, per disegnare la figura di un singolo soggetto.
-def spectrum_for_plot(subject, root, channel="C3", run=BASELINE_EYES_OPEN):
+def spectrum_for_plot(subject, root, channel="C3", run=BASELINE_EYES_OPEN, laplacian=True):
     bids_path = BIDSPath(
         subject=subject, task="motion", run=run, datatype="eeg", root=root
     )
     raw = read_raw_bids(bids_path, verbose=False)
     raw.load_data(verbose=False)
 
-    signal = laplacian_signal(raw, channel)
+    signal = laplacian_signal(raw, channel, laplacian)
     freqs, psd = power_spectrum(signal, raw.info["sfreq"])
 
     slope, intercept = fit_background(freqs, psd)
