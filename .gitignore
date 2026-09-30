@@ -3,6 +3,9 @@ data/s*
 rawdata/S*
 todo.txt
 
+# Appunti personali, restano solo in locale
+mieUtilities/
+
 # IDE
 .vscode/
 .idea/
