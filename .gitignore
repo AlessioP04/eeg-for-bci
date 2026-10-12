@@ -38,3 +38,9 @@ logs/
 # e la riga di eccezione non avrebbe effetto.
 tesi/*
 !tesi/main.pdf
+
+# Versione consegnata: congelata in tesi/consegna, in sola lettura. Come per la versione
+# di lavoro si versiona solo il pdf.
+!tesi/consegna/
+tesi/consegna/*
+!tesi/consegna/main.pdf
