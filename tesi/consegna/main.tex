@@ -1,0 +1,90 @@
+\documentclass{TesiDiaUniroma3}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage[bottom]{footmisc}
+
+\titolo{\textbf{Elettroencefalografia per interfacce cervello-computer: classificazione dell'immaginazione motoria e predizione delle prestazioni}}
+
+\autore{Alessio Paparcurio}
+\matricola{634690}
+\relatore{Prof. Fabio Gasparetti}
+\correlatore{Prof.ssa Silvia Conforto}
+\annoAccademico{2025/2026}
+
+
+% --- FINE dati relativi al template TesiDiaUniroma3
+
+% --- INIZIO richiamo di pacchetti di utilità. Questi sono un esempio e non sono strettamente necessari al modello per la tesi.
+\usepackage[plainpages=false]{hyperref}	% generazione di collegamenti ipertestuali su indice e riferimenti
+\usepackage[all]{hypcap} % per far si che i link ipertestuali alle immagini puntino all'inizio delle stesse e non alla didascalia sottostante
+\usepackage{amsthm}	% per definizioni e teoremi
+\usepackage{amsmath}	% per ``cases'' environment
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{amsfonts}
+\usepackage{subcaption}
+\usepackage{mathtools}
+\usepackage[width=.75\textwidth]{caption}
+\usepackage{adjustbox}
+\usepackage[normalem]{ulem}
+\usepackage[]{algorithm2e}
+
+% Package aggiunti 
+\usepackage{makecell} % Per le tabelle
+\usepackage{listings}
+\usepackage[table]{xcolor}
+\usepackage{rotating}
+\usepackage{tabularx}
+\usepackage{multicol}
+\usepackage{booktabs}
+\usepackage{lscape}
+\usepackage[flushleft]{threeparttable}
+\usepackage[autostyle]{csquotes}
+
+\useunder{\uline}{\ul}{}
+% Impostazioni per i frammenti di codice.
+\lstset{
+	language=Python,
+	basicstyle=\ttfamily\footnotesize\SingleSpacing,
+	keywordstyle=\bfseries,
+	commentstyle=\itshape,
+	showstringspaces=false,
+	breaklines=true,
+	frame=single,
+	xleftmargin=1em,
+	aboveskip=1.2em,
+	belowskip=1.2em
+}
+% --- FINE richiamo di pacchetti di utilità
+
+\setlength{\emergencystretch}{3em} % evita righe che sbordano nel margine
+
+\begin{document}
+% ----- Pagine di frontespizio, numerate in romano (i,ii,iii,iv...) (obbligatorio)
+\frontmatter
+\generaFrontespizio
+
+% \capitolo{Abstract}{capitoli/abstract}
+\generaIndice
+\generaIndiceFigure
+\generaIndiceTabelle
+
+% ----- Pagine di tesi, numerate in arabo (1,2,3,4,...) (obbligatorio)
+\mainmatter
+
+\introduzione{capitoli/01-introduzione}
+\capitolo{Principali tecnologie e paradigmi moderni}{capitoli/02-stato-arte}
+\capitolo{Dataset}{capitoli/03-dataset}
+\capitolo{Classificatore e predittore di illiteracy}{capitoli/04-pipeline}
+\capitolo{Risultati sperimentali}{capitoli/05-risultati}
+\capitolo{Conclusioni e sviluppi futuri}{capitoli/06-conclusioni}
+
+% ----- Parte finale della tesi (obbligatorio)
+\backmatter
+\appendix
+% \capitolo{Appendice}{capitoli/appendice}
+% \ringraziamenti{capitoli/ringraziamenti}
+\bibliography{bibliografia} 
+
+\end{document}

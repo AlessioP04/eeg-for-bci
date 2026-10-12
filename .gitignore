@@ -1,4 +1,4 @@
-# Rimozione del dataset, sia raw data che processed data 
+# Rimozione del dataset, sia raw data che processed data
 data/s*
 rawdata/S*
 todo.txt
@@ -33,14 +33,21 @@ logs/
 *.tmp
 *.bak
 
-# Tesi: si versiona solo il pdf compilato, non i sorgenti ne' i file ausiliari di LaTeX.
+# Tesi: online c'e' solo la versione consegnata, in tesi/consegna, con i sorgenti completi
+# e il pdf. La versione da stampare resta solo in locale perche' contiene i ringraziamenti.
 # Serve "tesi/*" e non "tesi/": escludendo la cartella stessa git non guarderebbe dentro
 # e la riga di eccezione non avrebbe effetto.
 tesi/*
-!tesi/main.pdf
-
-# Versione consegnata: congelata in tesi/consegna, in sola lettura. Come per la versione
-# di lavoro si versiona solo il pdf.
 !tesi/consegna/
-tesi/consegna/*
-!tesi/consegna/main.pdf
+
+# File ausiliari di LaTeX, nel caso la versione consegnata venga ricompilata sul posto
+tesi/consegna/*.aux
+tesi/consegna/*.bbl
+tesi/consegna/*.blg
+tesi/consegna/*.toc
+tesi/consegna/*.lof
+tesi/consegna/*.lot
+tesi/consegna/*.out
+tesi/consegna/*.synctex.gz
+tesi/consegna/*.fdb_latexmk
+tesi/consegna/*.fls

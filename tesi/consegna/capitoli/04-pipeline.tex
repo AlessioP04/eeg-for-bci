@@ -1,0 +1,181 @@
+Nella scelta del percorso da sviluppare sono stati presi in considerazione parametri di diversa natura, provenienti sia dallo stato dell’arte sia dalla struttura peculiare del dataset. Per raggiungere gli obiettivi proposti è stato necessario dividere il progetto in due parti concettualmente separate: la prima fase prevede lo sviluppo e l’ottimizzazione di un classificatore per il motor imagery, atto a decodificare correttamente l’intenzione cerebrale; successivamente, avendo a disposizione dati dettagliati e discriminativi sulle performance dei singoli soggetti, è stato implementato un algoritmo capace di distinguere soggetti più o meno performanti.
+
+\section{Struttura del classificatore}
+Per garantire l'affidabilità delle conclusioni sono stati sviluppati più classificatori, costruiti su uno scheletro comune che ne consente un confronto rapido e corretto. 
+Sono stati implementati classificatori binari asincroni basati su sliding windows. Il dataset contiene tre run per ciascun compito: per ciascun modello due run su tre sono state utilizzate per la fase di training, mentre la terza per la fase di test. Applicando la metodologia LORO ciascuna run viene utilizzata, a turno, come run di test. Tutti i classificatori sono stati addestrati ad eseguire la classificazione binaria di tipo rest/active (distinzione dello stato di riposo da quello di attivazione) oppure di tipo T1/T2 (utilizzando la nomenclatura del dataset, distinzione tra due diverse classi di attivazione). Solo per il modello più accurato è stata implementata una pipeline completa a cascata in grado di classificare l'intenzione cerebrale tra cinque possibili casi: riposo oppure apertura e chiusura ripetuta del pugno destro, del pugno sinistro, di entrambi i pugni o di entrambi i piedi.
+
+
+\section{Lettura dei dati e pre-processing}
+L’intera elaborazione del segnale è stata realizzata in Python attraverso la libreria MNE, che costituisce lo strumento di riferimento per l’analisi di dati elettrofisiologici in questo linguaggio, affiancata dall’estensione MNE-BIDS per la gestione delle raccolte organizzate secondo lo standard descritto nel capitolo precedente.
+La lettura di una registrazione non richiede la costruzione manuale del percorso del file: è sufficiente dichiarare quale dato si desideri, indicando il soggetto, il compito e il numero della run.
+
+\begin{lstlisting}
+bids_path = BIDSPath(subject=subject, task="motion", run=run,
+                     datatype="eeg", root=root)
+
+raw = read_raw_bids(bids_path, verbose=False)
+events, event_id = mne.events_from_annotations(raw, verbose=False)
+raw.load_data (verbose=False)
+\end{lstlisting}
+
+L’oggetto restituito, chiamato Raw, contiene la matrice dei segnali, con una riga per elettrodo e una colonna per istante campionato, insieme a tutte le informazioni descrittive della registrazione, fra cui i nomi e le posizioni degli elettrodi e la frequenza di campionamento. Quest’ultima viene letta dal file e non fissata nel codice: è questa la ragione per cui i tre soggetti acquisiti a 128 Hz sono stati elaborati senza alcun adattamento, dal momento che tutte le durate sono espresse in secondi e convertite in numero di campioni soltanto al momento dell’uso.
+La chiamata a \texttt{events\_from\_annotations} traduce i marcatori temporali in una tabella nella quale ogni riga riporta l’istante di inizio di un evento e il codice che lo identifica, mentre il dizionario restituito insieme ad essa associa ciascun codice al nome leggibile dell’annotazione. Per permettere le successive operazioni, \texttt{load\_data} carica effettivamente i dati in memoria.
+
+Il pre-processing vero e proprio consiste in due sole operazioni.
+
+\begin{lstlisting}
+raw.filter(l_freq=L_FREQ, h_freq=H_FREQ, verbose=False)
+raw.set_eeg_reference('average', projection=False, verbose=False)
+\end{lstlisting}
+
+La prima è un filtro passa banda. Le componenti al di sotto dell’estremo inferiore corrispondono a derive lente, dovute alla variazione dell’impedenza degli elettrodi, ai movimenti del capo e alla deriva dell’amplificatore, e presentano un’ampiezza molto superiore a quella del segnale di interesse; al di sopra dell’estremo superiore si collocano invece l’attività muscolare e il disturbo introdotto dalla rete elettrica. L’intervallo conservato dipende dal modello: per i classificatori basati sul Common Spatial Patterns è 8-30 Hz, che comprende i ritmi mu e beta, mentre per quelli a banco di filtri è 4-40 Hz. È opportuno osservare che il filtro applicato è a fase zero e utilizza quindi, per calcolare il valore filtrato in un dato istante, anche i campioni successivi a quell’istante. La scelta è legittima in un’analisi condotta a posteriori, quale è quella qui presentata, ma costituisce un vincolo del quale occorrerebbe tenere conto qualora la pipeline venisse trasferita su un sistema funzionante in tempo reale, nel quale i campioni successivi non sono ancora disponibili.
+
+La seconda operazione è l’adozione del riferimento medio. Durante l’acquisizione tutti gli elettrodi sono misurati rispetto a un unico riferimento fisico che non è elettricamente neutro: qualunque disturbo presente in quel punto si ritrova, con segno opposto, in tutti i canali. Sottraendo a ogni elettrodo la media istantanea di tutti gli altri si elimina la componente comune e si ottiene, per ciascun canale, la misura di quanto esso si discosti dal comportamento medio dello scalpo. 
+
+Una terza operazione, la rimozione degli artefatti mediante analisi delle componenti indipendenti (ICA), era inizialmente presente in tutte le pipeline ed è stata eliminata a seguito di una verifica sperimentale. Nella banda 8-30 Hz la procedura scartava in media mezza componente su quindici, risultando di fatto inattiva; nella banda più ampia ne scartava un numero considerevole, ma l’accuratezza sui dati di test peggiorava. La ragione risiede nel fatto che il dataset non dispone di canali dedicati alla registrazione dell’attività oculare, per cui l’algoritmo di individuazione automatica è costretto a impiegare come sostituti due elettrodi frontali, finendo per rimuovere anche componenti che contengono segnale utile.
+
+Completato il pre-processing, l’analisi viene ristretta agli elettrodi di interesse, individuati per nome all’interno dell’elenco dei canali della registrazione.
+
+\begin{lstlisting}
+CHANNELS = ["C3", "C4", "Cz", "Fc3", "Fc4", "Fcz", "Cp3", "Cp4", "Cpz"]
+picks = mne.pick_channels(raw.ch_names, CHANNELS)
+\end{lstlisting}
+
+Gli elettrodi conservati sono i nove che sovrastano la corteccia motoria. La chiamata non modifica il segnale ma restituisce soltanto gli indici corrispondenti a quei nomi, che verranno applicati all’array delle finestre nel modo descritto nella sezione seguente.
+
+
+\section{Segmentazione dei dati}
+Nelle varie pipeline viene proposto un approccio asincrono basato sulla segmentazione del segnale in finestre scorrevoli (sliding windows). L’obiettivo della ricerca è stato quello di ricavare un algoritmo applicabile in contesti reali e online e comprendere le prestazioni di soggetti senza addestramento a cui, ipoteticamente, viene fornito un dispositivo BCI. La metodologia comunemente usata in tale contesto è quella delle sliding windows che consiste nel suddividere il segnale continuo in brevi segmenti temporali sovrapposti o consecutivi. Attraverso la chiamata al metodo \texttt{create\_sliding\_windows} viene assegnato a \texttt{windows} l’array costituito da circa 246 finestre, ciascuna con 64 canali e 320 campioni. La chiamata a \texttt{create\_window\_labels} crea l’array \texttt{y} contenente le etichette associate alle 246 finestre.
+
+\begin{lstlisting}
+windows, window_samples, step_samples, total_samples = create_sliding_windows(
+    raw, window_size, step_size
+)
+windows = windows[:, picks, :]
+
+y, groups = create_window_labels(
+    events, event_map, total_samples, window_samples, step_samples,
+    threshold=label_threshold, return_groups=True
+)
+\end{lstlisting}
+
+La finestra e il passo misurano rispettivamente due secondi e mezzo secondo, che alla frequenza di campionamento di 160 Hz corrispondono a 320 e 80 campioni: due finestre consecutive condividono dunque i tre quarti dei propri campioni. La durata di due secondi rappresenta un compromesso fra due esigenze opposte: una finestra più breve non consentirebbe una stima stabile delle potenze di banda, mentre una più lunga accrescerebbe la latenza del sistema. 
+
+L’assegnazione delle etichette avviene in due fasi. Prima ogni campione della registrazione riceve l’etichetta dell’evento che lo contiene; successivamente a ciascuna finestra viene attribuita la classe che ne occupa almeno una frazione prefissata dei campioni, indicata dal parametro \texttt{threshold} e fissata a 0,8. Il parametro governa il trattamento delle finestre a cavallo fra un trial e il riposo che lo segue: essendo le finestre fortemente sovrapposte, una parte di esse contiene necessariamente sia attivazione sia riposo. Attribuire a tali finestre la classe attiva significherebbe insegnare al classificatore a riconoscere come movimento immaginato un segmento costituito per metà da riposo. Questa selezione riduce il numero di finestre utili a 84, equamente ripartite fra le due classi e ricavate da quattordici trial nella misura di sei finestre ciascuno.
+
+Il secondo array restituito, \texttt{groups}, riporta per ciascuna finestra l’indice del trial dal quale essa proviene. Questa suddivisione è necessaria per evitare sovrastime nella fase di k-fold cross validation: le finestre estratte dal medesimo trial condividono fino a tre quarti dei propri campioni e sono pertanto quasi identiche fra loro; qualora la cross validation interna alla ricerca degli iperparametri le suddividesse in maniera casuale, alcune di esse comparirebbero simultaneamente nell’insieme di addestramento e in quello di validazione, e il punteggio che determina gli iperparametri risulterebbe sistematicamente sovrastimato. Fornendo i gruppi alla procedura \texttt{StratifiedGroupKFold} si impone invece che tutte le finestre di uno stesso trial rimangano dalla medesima parte della suddivisione. Poiché gli indici sono numerati a partire da zero all’interno di ciascuna run, ad essi viene sommato uno scostamento crescente che li rende univoci nell’ambito dell’intero soggetto.
+
+\section{Estrazione delle feature}
+Nel corso del lavoro sono stati implementati tre distinti metodi di estrazione delle feature: il Common Spatial Patterns, la sua estensione a banco di filtri e un approccio fondato sulla geometria riemanniana delle matrici di covarianza. Il confronto sistematico fra i tre è stato effettuato su una piccola porzione di soggetti a causa dell'elevato carico computazionale e di conseguenza non è stato riportato formalmente nel capitolo dedicato ai risultati; in ogni caso, tale confronto ha evidenziato che il terzo approccio risulta migliore per il dataset utilizzato, sia sul piano delle prestazioni che su quello del costo computazionale; per questa ragione la trattazione che segue è dedicata esclusivamente ad esso.
+
+Sia $X \in \mathbb{R}^{C \times T}$ la matrice associata a una finestra, con $C = 9$ canali e $T = 320$ campioni, filtrata in una determinata sotto-banda e a media nulla. La grandezza sulla quale si fonda l’intero metodo è la matrice di covarianza
+
+\[
+\Sigma \;=\; \frac{1}{T-1}\, X X^{\top} .
+\]
+
+Sulla diagonale sono presenti i valori di potenza di ciascun canale nella banda considerata, ossia la grandezza che la desincronizzazione legata all’evento fa diminuire; gli elementi fuori dalla diagonale misurano invece quanto due canali varino insieme, e descrivono pertanto la configurazione spaziale della sorgente. La matrice condensa in tal modo, in un unico oggetto, sia l’informazione spettrale sia quella spaziale e, a differenza dei filtri del Common Spatial Patterns, non richiede alcun addestramento. Essendo $\Sigma$ simmetrica per costruzione, i suoi elementi distinti sono $C(C+1)/2 = 45$. La stima viene effettuata mediante lo stimatore a contrazione OAS, che tempera la matrice campionaria verso una forma più semplice in misura determinata automaticamente dai dati, così da contenere la variabilità della stima su finestre brevi.
+
+Per evitare contaminazioni tra bande distinte, si adotta un banco di filtri costituito dalle tre sotto-bande $\mathcal{B} = \{(8,13),\,(13,20),\,(20,30)\}$ Hz, calcolando una matrice di covarianza per ciascuna di esse; il numero complessivo di feature per finestra ammonta quindi a $3 \times 45 = 135$.
+
+Le matrici di covarianza non costituiscono un ordinario spazio vettoriale. Esse appartengono infatti all’insieme $\mathcal{P}_C$ delle matrici simmetriche definite positive: la media aritmetica di due matrici di covarianza, pur essendo calcolabile, non rappresenta il punto ad esse intermedio sulla varietà e descrive un segnale sistematicamente più energetico di entrambe. La metrica appropriata è quella affine-invariante, secondo la quale la distanza fra due matrici è
+
+\[
+\delta(\Sigma_1, \Sigma_2) \;=\; \left\lVert \log\!\left( \Sigma_1^{-1/2}\, \Sigma_2\, \Sigma_1^{-1/2} \right) \right\rVert_F ,
+\]
+
+e il baricentro di un insieme di $N$ matrici è definito come il punto che minimizza la somma dei quadrati di tali distanze,
+
+\[
+\bar{\Sigma} \;=\; \arg\min_{\Sigma \in \mathcal{P}_C} \; \sum_{n=1}^{N} \delta^2(\Sigma, \Sigma_n) .
+\]
+
+Su questa nozione si fonda l’operazione che caratterizza il metodo. Fra una run e l’altra variano le impedenze degli elettrodi, il grado di vigilanza del soggetto e il livello complessivo di attivazione, con la conseguenza che le covarianze di run differenti occupano regioni differenti della varietà e un classificatore addestrato su due run ritrova la terza traslata. Il rimedio consiste nel riportare ciascuna run sul proprio baricentro mediante la trasformazione di congruenza
+
+\[
+\tilde{\Sigma}_n \;=\; \bar{\Sigma}^{-1/2}\, \Sigma_n\, \bar{\Sigma}^{-1/2} ,
+\]
+
+la quale conduce il baricentro esattamente nella matrice identità e vi trasporta con sé l’intera nuvola. L’efficacia del procedimento discende da una proprietà della metrica adottata: la congruenza ne è un’isometria, giacché la distanza $\delta(W \Sigma_1 W, W \Sigma_2 W) = \delta(\Sigma_1, \Sigma_2)$ per ogni $W$ invertibile. Il riallineamento costituisce dunque un movimento rigido, che modifica la posizione della nuvola senza alterarne la forma interna: lo scostamento comune all’intera run viene eliminato, mentre la differenza fra le classi, essendo interna alla run, sopravvive immutata. Le misure condotte sul soggetto 001 confermano quanto descritto: i baricentri delle tre run distano fra loro da 0,41 a 0,62, valore confrontabile con la distanza fra i centri delle due classi, compresa fra 0,81 e 1,07; dopo il riallineamento la prima si annulla mentre la seconda rimane identica.
+
+È opportuno sottolineare che il baricentro viene stimato \textbf{senza fare uso delle etichette}, ragione per la quale può essere calcolato anche sulla run di test senza che ciò configuri una forma di \emph{leakage}: l’operazione rientra nella categoria dell’adattamento di dominio non supervisionato e corrisponde, in un sistema reale, alla registrazione di un breve segnale di calibrazione precedente all’utilizzo.
+
+Poiché i classificatori lineari operano in spazi piatti, l’ultimo passaggio consiste nel proiettare le covarianze riallineate nello spazio tangente alla varietà. Il punto di tangenza è la matrice identità, scelta non arbitraria ma conseguenza del riallineamento, che vi ha condotto il baricentro di ogni run: la proiezione risulta pertanto accurata nell’intorno in cui i dati si addensano ed è la medesima per tutte le run, condizione necessaria affinché le coordinate siano confrontabili. Il vettore di feature associato alla finestra $n$ si ottiene applicando il logaritmo matriciale e riordinando in un vettore gli elementi della porzione triangolare superiore,
+
+\[
+s_n \;=\; \operatorname{vec}\!\left( \log \tilde{\Sigma}_n \right) ,
+\]
+
+dove gli elementi esterni alla diagonale vengono moltiplicati per $\sqrt{2}$ affinché la norma euclidea del vettore coincida con quella di Frobenius della matrice. Concatenando i vettori relativi alle tre sotto-bande si ottengono le 135 componenti sulle quali opera il classificatore.
+
+\section{Classificazione e validazione}
+La scelta del classificatore è stata dettata dalle proporzioni del problema. Ogni fold dispone di circa centosessanta finestre di addestramento, provenienti però da appena ventotto trial indipendenti, a fronte di 135 feature: un regime nel quale la quantità di parametri liberi da stimare è confrontabile con quella dei dati disponibili. È stata pertanto adottata l’analisi discriminante lineare con contrazione, la quale tempera la matrice di covarianza stimata verso una forma semplice secondo la relazione
+
+\[
+\hat{\Sigma}_\gamma \;=\; (1-\gamma)\,\hat{\Sigma} \;+\; \gamma\, \frac{\operatorname{tr}(\hat{\Sigma})}{d}\, I ,
+\]
+
+nella quale il coefficiente $\gamma$ stabilisce quanto la stima venga avvicinata alla forma semplice. Il valore di $\gamma$ è scelto, per ciascun fold, sui soli dati di addestramento tramite una ricerca a griglia fra tre candidati: la stima analitica di Ledoit-Wolf, che ricava $\gamma$ direttamente dai dati con una formula chiusa (opzione \texttt{"auto"}), e i due valori fissi 0,2 e 0,5.
+
+\begin{lstlisting}
+param_grid = {"clf__shrinkage": ["auto", 0.2, 0.5]}
+
+pipe = Pipeline([
+    ("scaler", StandardScaler()),
+    ("clf", LinearDiscriminantAnalysis(solver="lsqr")),
+])
+
+cv = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+grid = GridSearchCV(pipe, param_grid, cv=cv,
+                    scoring="balanced_accuracy", n_jobs=-1)
+grid.fit(X_train, y_train, groups=groups_train)
+\end{lstlisting}
+
+La standardizzazione che precede il classificatore riconduce ciascuna delle 135 componenti a media nulla e varianza unitaria, impedendo che le sotto-bande più energetiche dominino quelle più deboli per la sola ragione della loro scala. La griglia degli iperparametri è volutamente minima e comprende il solo coefficiente di contrazione: esplorare decine di combinazioni disponendo di ventotto trial indipendenti significherebbe selezionare il rumore anziché il segnale. La cross validation interna impiega la suddivisione per gruppi descritta nella sezione precedente, così che il punteggio sulla cui base l’iperparametro viene scelto risulti onesto e non gonfiato dalla sovrapposizione fra finestre.
+
+La validazione esterna adotta il criterio Leave-One-Run-Out già illustrato: il modello viene addestrato su due run e valutato sulla terza. La scelta è più severa di quella, assai diffusa in letteratura, che suddivide casualmente i trial di tutte le run: quest’ultima colloca nell’insieme di valutazione segmenti provenienti dalle medesime registrazioni impiegate per l’addestramento, e misura pertanto la separabilità all’interno di una sessione anziché la capacità di generalizzare ad una run non utilizzata nell'addestramento, condizione ben più vicina a quella in cui un sistema reale si trova a operare. Bisogna sottolineare che, a causa dei limiti imposti dal dataset, questo approccio non dimostra formalmente la robustezza \emph{cross-session}. La metrica adottata è la balanced accuracy, ossia la media delle accuratezze ottenute su ciascuna classe: quest'ultimo passaggio è necessario dato che all'interno della sessione non è garantito un uguale numero di finestre per ciascuna classe.
+
+\begin{lstlisting}
+probs = grid.predict_proba(X_test)
+max_probs = np.max(probs, axis=1)
+predictions = np.argmax(probs, axis=1)
+
+threshold = START_THRESHOLD
+accepted_mask = max_probs >= threshold
+while np.sum(accepted_mask) < MIN_ACCEPTED_RATIO * len(y_test) and threshold > MIN_THRESHOLD:
+    threshold -= 0.05
+    accepted_mask = max_probs >= threshold
+\end{lstlisting}
+
+L’ultima fase introduce quella che costituisce una \textbf{precisa scelta di progetto}. Il classificatore non emette la classe più probabile in ogni circostanza, ma soltanto quando la probabilità ad essa associata supera una soglia: al di sotto di tale valore la finestra viene scartata e nessun comando viene prodotto. La motivazione è di natura applicativa, poiché in un sistema BCI il mancato invio di un comando rappresenta un inconveniente assai minore rispetto all’invio di un comando errato. La soglia parte dal valore 0,90 e viene abbassata a passi di 0,05 finché non risulti accettato almeno il 70\% delle finestre.
+
+Se ne deduce che \textbf{l’accuratezza non è mai una grandezza assoluta, bensì sempre relativa a una determinata percentuale di campioni scartati}, e le due quantità vanno riportate congiuntamente. Un’accuratezza elevata ottenuta rifiutando la metà delle finestre non è confrontabile con un’accuratezza inferiore ottenuta rifiutandone un quarto.
+
+Infine, è stata realizzata una pipeline completa a due stadi, nella quale il primo determina se il soggetto stia immaginando un movimento (piuttosto che stare in stato di riposo) e il secondo, interrogato soltanto in caso affermativo, ne stabilisce la natura fra i quattro possibili compiti. Le due probabilità vengono composte in un’unica distribuzione sui cinque esiti finali, alla quale si applica la medesima soglia descritta poc’anzi: qualora nessuno dei due stadi risulti sufficientemente sicuro, la confidenza complessiva si abbassa e la finestra viene scartata, anziché dare luogo a un errore non più recuperabile ai livelli successivi.
+
+\section{Il predittore di illiteracy}
+L'osservazione dei risultati provenienti da metodi di natura diversa evidenzia un aspetto cruciale: la variabilità fra i soggetti risulta molto più ampia delle differenze osservate fra i metodi. Se dunque una parte rilevante della prestazione è legata alla persona, diviene legittimo domandarsi se sia possibile prevederla prima ancora di somministrare l’addestramento, individuando in anticipo i soggetti per i quali il paradigma di immaginazione motoria non produrrà un segnale utilizzabile.
+
+Il fondamento neurofisiologico dell’ipotesi è il meccanismo stesso sul quale l’intero sistema si poggia. L’immaginazione motoria viene riconosciuta in quanto desincronizza il ritmo mu sensomotorio, riducendone la potenza; l'ipotesi è dunque che, in un soggetto con un ritmo mu poco marcato in stato di riposo, sia difficile riconoscere eventuali desincronizzazioni. La misura viene condotta sulla prima run del protocollo, un minuto di registrazione a riposo con gli occhi aperti, la quale non è impiegata da alcuno dei classificatori: i due insiemi di dati non si intersecano e non sussiste pertanto alcuna circolarità fra ciò che viene previsto e ciò che viene misurato.
+
+\begin{lstlisting}
+def laplacian_signal(raw, centre):
+    neighbours = LAPLACIAN_NEIGHBOURS[centre]
+    centre_data = raw.get_data(picks=[centre])[0]
+    ring_data = raw.get_data(picks=neighbours).mean(axis=0)
+    return centre_data - ring_data
+\end{lstlisting}
+
+Il segnale viene dapprima sottoposto a un laplaciano di superficie, ottenuto sottraendo a ciascun elettrodo centrale la media dei quattro che lo circondano. L’operazione è indispensabile per la validità della misura: il ritmo mu è un fenomeno focale, circoscritto alla corteccia sensomotoria, mentre il ritmo alfa occipitale, che occupa il medesimo intervallo di frequenze, è diffuso e raggiunge anche gli elettrodi centrali. In assenza del laplaciano un soggetto dotato di alfa posteriore pronunciata apparirebbe dotato di un mu altrettanto pronunciato, e il predittore misurerebbe una grandezza priva di relazione con il compito.
+
+Dello spettro di potenza, stimato con il metodo di Welch sui segmenti di due secondi, non interessa la potenza assoluta nella banda, la quale dipende in larga parte da fattori estranei all’attività cerebrale quali lo spessore del cranio e l’impedenza degli elettrodi. Interessa invece quanto il ritmo emerga rispetto all’attività di fondo. Poiché in scala doppiamente logaritmica il fondo elettroencefalografico è approssimabile con una retta, se ne stimano i coefficienti mediante regressione lineare sull’intervallo 3-40 Hz, escludendo dalla stima la banda mu affinché il picco non concorra a innalzare il fondo rispetto al quale viene poi misurato. Il predittore è quindi definito come
+
+\[
+p \;=\; 10 \, \log_{10} \max_{f \in \mu} \frac{P(f)}{P_{\text{fondo}}(f)} ,
+\]
+
+ossia la massima elevazione del picco sopra il fondo all’interno della banda, espressa in decibel, alla quale si accompagna la frequenza in cui tale massimo si verifica, corrispondente al ritmo mu individuale del soggetto.
+
+La misura viene condotta separatamente su C3 e C4 e di essa si conservano la media e il minimo fra i due emisferi. La distinzione non è superflua: un soggetto può presentare un ritmo mu marcato da un lato e pressoché assente dall’altro, e poiché la classificazione fra mano sinistra e destra si fonda sul confronto fra i due emisferi, il valore minimo descrive la situazione in modo più fedele di quanto non faccia la media. Per il compito pugni contro piedi la misura viene estesa a Cz: l'area corticale del piede si trova infatti sulla superficie mediale, fra i due emisferi, e un predittore costruito sui soli C3 e C4 coglierebbe soltanto la metà del contrasto che il classificatore deve poi riconoscere. In questo caso media e minimo sono calcolati sui tre canali.
+
+Il confronto fra il predittore e la prestazione effettivamente conseguita dai soggetti è riportato nel capitolo successivo. Si osservi infine che l’impiego dell’attività a riposo per la previsione della prestazione è stato già proposto in letteratura sul medesimo dataset \cite{Wang2022-pi}; rispetto a tale lavoro, sono presenti varie differenze sia a livello di classificatore che di predittore. In primo luogo, vengono qui impiegati criteri valutativi più severi, come precedentemente discusso; per quanto concerne il predittore invece, la misura qui adottata differisce per l'adozione del laplaciano e per la scelta di quantificare l'emergenza del picco rispetto al fondo anziché la potenza relativa della banda.
